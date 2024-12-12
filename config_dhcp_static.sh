@@ -1,74 +1,69 @@
 #!/bin/bash
 
-# Função para configurar o DHCP no Netplan
-config_dhcp_netplan() {
-    echo "Configurando a interface para DHCP no Netplan..."
+# Função para configurar o servidor DHCP
+config_dhcp_server() {
+    echo "Configurando o Servidor DHCP..."
 
-    # Verifica a interface de rede do sistema (usando enp0s3 como exemplo)
-    interface=$(ip link show | grep -E 'enp|eth' | awk '{print $2}' | tr -d ':' | head -n 1)
+    # Instalar o servidor DHCP
+    sudo apt update
+    sudo apt install -y isc-dhcp-server
 
-    # Backup do arquivo Netplan
-    sudo cp /etc/netplan/00-installer-config.yaml /etc/netplan/00-installer-config.yaml.bak
+    # Configurar o arquivo de configuração do DHCP
+    cat <<EOL | sudo tee /etc/dhcp/dhcpd.conf > /dev/null
+# Configuração básica do servidor DHCP
+option domain-name "example.com";
+option domain-name-servers 8.8.8.8, 8.8.4.4;
 
-    # Modificar a configuração do Netplan para usar DHCP
-    sudo sed -i "s/addresses: .*/addresses: []/g" /etc/netplan/00-installer-config.yaml
-    sudo sed -i "s/dhcp4: false/dhcp4: true/g" /etc/netplan/00-installer-config.yaml
+default-lease-time 600;
+max-lease-time 7200;
 
-    # Aplicar as mudanças no Netplan
-    sudo netplan apply
+subnet 192.168.1.0 netmask 255.255.255.0 {
+    range 192.168.1.10 192.168.1.100;
+    option routers 192.168.1.1;
+    option broadcast-address 192.168.1.255;
+    option domain-name-servers 8.8.8.8, 8.8.4.4;
+}
+EOL
 
-    echo "A interface foi configurada para DHCP."
+    # Configurar a interface de rede que o DHCP irá escutar (assumindo eth0 como padrão)
+    echo "INTERFACESv4=\"eth0\"" | sudo tee /etc/default/isc-dhcp-server > /dev/null
+
+    # Reiniciar o serviço DHCP
+    sudo systemctl restart isc-dhcp-server
+    sudo systemctl enable isc-dhcp-server
+
+    echo "Servidor DHCP configurado e iniciado com sucesso!"
 }
 
-# Função para instruir o usuário a mudar para o modo Bridge no VirtualBox
-instrucoes_virtualbox_bridge() {
-    echo "Por favor, altere a configuração de rede do seu VirtualBox para o modo 'Bridge'."
-    echo "Siga estas etapas no VirtualBox:"
-    echo "1. Selecione a VM em questão."
-    echo "2. Vá em 'Configurações' > 'Rede'."
-    echo "3. Na placa de rede, altere para 'Adaptador em Bridge'."
-    echo "4. Reinicie a VM."
-    echo "Depois de concluir, pressione ENTER para continuar com a configuração."
-    read -p "Pressione ENTER quando terminar... "
+# Função para configurar o cliente DHCP
+config_dhcp_client() {
+    echo "Configurando o Cliente DHCP..."
+
+    # Garantir que o cliente DHCP esteja instalado
+    sudo apt update
+    sudo apt install -y isc-dhcp-client
+
+    # Configurar o cliente para obter um IP via DHCP
+    sudo cp /etc/network/interfaces /etc/network/interfaces.bak
+    echo "auto eth0" | sudo tee -a /etc/network/interfaces > /dev/null
+    echo "iface eth0 inet dhcp" | sudo tee -a /etc/network/interfaces > /dev/null
+
+    # Reiniciar a rede para aplicar as configurações
+    sudo systemctl restart networking
+
+    echo "Cliente DHCP configurado com sucesso!"
 }
 
-# Função para configurar o IP estático no Netplan após a instalação
-config_static_netplan() {
-    echo "Agora, voltaremos ao modo 'Rede Interna' e configuraremos um IP estático no Netplan."
-
-    # Solicitar o IP estático para o usuário
-    echo -n "Digite o IP estático desejado para a interface (ex: 192.168.56.10): "
-    read ip_estatico
-
-    # Verificar a interface de rede novamente
-    interface=$(ip link show | grep -E 'enp|eth' | awk '{print $2}' | tr -d ':' | head -n 1)
-
-    # Backup do arquivo Netplan
-    sudo cp /etc/netplan/00-installer-config.yaml /etc/netplan/00-installer-config.yaml.bak
-
-    # Modificar a configuração do Netplan para IP estático
-    sudo sed -i "s/dhcp4: true/dhcp4: false/g" /etc/netplan/00-installer-config.yaml
-    sudo sed -i "/ethernets:/a \ \ \ \ $interface:\n\ \ \ \ \ \ \ \ \ dhcp4: false\n\ \ \ \ \ \ \ \ \ addresses: [$ip_estatico/24]\n\ \ \ \ \ \ \ \ \ gateway4: 192.168.56.1\n\ \ \ \ \ \ \ \ \ nameservers:\n\ \ \ \ \ \ \ \ \ \ \ \ \ addresses: [8.8.8.8, 8.8.4.4]" /etc/netplan/00-installer-config.yaml
-
-    # Aplicar as mudanças no Netplan
-    sudo netplan apply
-
-    echo "A interface foi configurada com o IP estático $ip_estatico."
-}
-
-# Função principal que executa as etapas do processo
+# Função para verificar o sistema e aplicar as configurações apropriadas
 main() {
-    # Configurar a interface para usar DHCP no Netplan
-    config_dhcp_netplan
-
-    # Instruções para mudar para o modo 'Bridge' no VirtualBox
-    instrucoes_virtualbox_bridge
-
-    # Configurar o IP estático no Netplan após a instalação
-    config_static_netplan
-
-    echo "Configuração completa!"
+    if [ "$1" == "server" ]; then
+        config_dhcp_server
+    elif [ "$1" == "client" ]; then
+        config_dhcp_client
+    else
+        echo "Uso incorreto. Use 'server' para configurar o servidor ou 'client' para configurar o cliente."
+    fi
 }
 
 # Executando a função principal
-main
+main "$1"
