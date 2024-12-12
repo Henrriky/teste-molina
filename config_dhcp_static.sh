@@ -8,6 +8,15 @@ config_dhcp_server() {
     sudo apt update
     sudo apt install -y isc-dhcp-server
 
+    # Perguntar as informações de configuração
+    read -p "Informe o IP da sub-rede (ex: 192.168.1.0): " ip_subrede
+    read -p "Informe a máscara de sub-rede (ex: 255.255.255.0): " mascara_subrede
+    read -p "Informe a quantidade de endereços IPs a serem alocados (ex: 50): " quantidade_ips
+
+    # Calcular o último IP do intervalo baseado na quantidade de endereços
+    ip_inicio=$(echo $ip_subrede | cut -d'.' -f1-3).$((${ip_subrede##*.}+1))
+    ip_fim=$(echo $ip_subrede | cut -d'.' -f1-3).$((${ip_subrede##*.}+quantidade_ips))
+
     # Configurar o arquivo de configuração do DHCP
     cat <<EOL | sudo tee /etc/dhcp/dhcpd.conf > /dev/null
 # Configuração básica do servidor DHCP
@@ -17,10 +26,10 @@ option domain-name-servers 8.8.8.8, 8.8.4.4;
 default-lease-time 600;
 max-lease-time 7200;
 
-subnet 192.168.1.0 netmask 255.255.255.0 {
-    range 192.168.1.10 192.168.1.100;
-    option routers 192.168.1.1;
-    option broadcast-address 192.168.1.255;
+subnet $ip_subrede netmask $mascara_subrede {
+    range $ip_inicio $ip_fim;
+    option routers ${ip_subrede%.*}.1;
+    option broadcast-address ${ip_subrede%.*}.255;
     option domain-name-servers 8.8.8.8, 8.8.4.4;
 }
 EOL
